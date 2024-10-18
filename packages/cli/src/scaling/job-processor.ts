@@ -1,7 +1,12 @@
 import type { RunningJobSummary } from '@n8n/api-types';
-import { WorkflowExecute } from 'n8n-core';
-import { BINARY_ENCODING, ApplicationError, Workflow } from 'n8n-workflow';
+import { InstanceSettings, WorkflowExecute } from 'n8n-core';
 import type { ExecutionStatus, IExecuteResponsePromiseData, IRun } from 'n8n-workflow';
+import {
+	BINARY_ENCODING,
+	ApplicationError,
+	Workflow,
+	ErrorReporterProxy as ErrorReporter,
+} from 'n8n-workflow';
 import type PCancelable from 'p-cancelable';
 import { Service } from 'typedi';
 
@@ -33,6 +38,7 @@ export class JobProcessor {
 		private readonly executionRepository: ExecutionRepository,
 		private readonly workflowRepository: WorkflowRepository,
 		private readonly nodeTypes: NodeTypes,
+		private readonly instanceSettings: InstanceSettings,
 	) {
 		this.logger = this.logger.withScope('scaling');
 	}
@@ -120,7 +126,7 @@ export class JobProcessor {
 					kind: 'respond-to-webhook',
 					executionId,
 					response: this.encodeWebhookResponse(response),
-					workerId: config.getEnv('redis.queueModeId'),
+					workerId: this.instanceSettings.hostId,
 				};
 
 				await job.progress(msg);
@@ -142,6 +148,7 @@ export class JobProcessor {
 			workflowExecute = new WorkflowExecute(additionalData, execution.mode, execution.data);
 			workflowRun = workflowExecute.processRunExecutionData(workflow);
 		} else {
+			ErrorReporter.info(`Worker found execution ${executionId} without data`);
 			// Execute all nodes
 			// Can execute without webhook so go on
 			workflowExecute = new WorkflowExecute(additionalData, execution.mode);
@@ -173,7 +180,7 @@ export class JobProcessor {
 		const msg: JobFinishedMessage = {
 			kind: 'job-finished',
 			executionId,
-			workerId: config.getEnv('redis.queueModeId'),
+			workerId: this.instanceSettings.hostId,
 		};
 
 		await job.progress(msg);
